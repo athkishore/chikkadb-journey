@@ -40,7 +40,7 @@ if (!filterJSON) {
 }
 
 const filter = JSON.parse(filterJSON);
-const { error, filterParseTree } = parseFilter(filter);
+const { error, filterParseTree } = parseFilter(filter, { parentKey: '$and', isTopLevel: true });
 if (error) console.error(error);
 if (filterParseTree) console.dir(filterParseTree, { depth: null });
 
@@ -72,6 +72,7 @@ function parseFilter(
   filter: Record<string, any>, 
   context: { 
     parentKey: string;
+    isTopLevel?: boolean;
   } = {
     parentKey: '$and',
   }
@@ -92,19 +93,19 @@ function parseFilter(
       topLevelOperands.push(node);
     }
 
-    // if (topLevelOperands.length === 1) {
-    //   return {
-    //     error: null,
-    //     filterParseTree: topLevelOperands[0]!
-    //   };
-    // } else {
+    if (topLevelOperands.length === 1 && !context.isTopLevel) {
+      return {
+        error: null,
+        filterParseTree: topLevelOperands[0]!
+      };
+    } else {
       return {
         error: null,
         filterParseTree: {
           operator: '$and',
           operands: topLevelOperands,
         }
-      // }
+      }
     }
   } catch (error) {
     return {
@@ -138,9 +139,21 @@ function parseElement(
       ]
     };
 
-  }
+  } else if (INTERIOR_OPERATORS.includes(key as any)) {
+    if (!Array.isArray(value)) throw new Error(`Operator ${key} expects array value`);
 
-  if (
+    const operands = [];
+    for (const el of value) {
+      const { error, filterParseTree } = parseFilter(el);
+      if (error) throw error;
+      operands.push(filterParseTree);
+    }
+
+    return {
+      operator: key as FilterOperator,
+      operands,
+    }
+  } else if (
     typeof value === 'string'
     || typeof value === 'number' // what about BigInt
     || typeof value === 'boolean'
