@@ -9,6 +9,7 @@ const FILTER_OPERATORS = [
   '$lte',
   '$gt',
   '$gte',
+  '$in',
 ] as const;
 
 const LEAF_OPERATORS = [
@@ -16,7 +17,8 @@ const LEAF_OPERATORS = [
   '$lt',
   '$lte',
   '$gt',
-  '$gte'
+  '$gte',
+  '$in',
 ] as const;
 
 const INTERIOR_OPERATORS = [
@@ -244,6 +246,9 @@ function convertFilterTreeToSQLWhere(filter: FilterParseNode, level = 0): string
 
     case '$lte':
       return `fullkey LIKE ${sqlFragments[0]} AND value <= ${sqlFragments[1]}`;
+
+    case '$in':
+      return `fullkey LIKE ${sqlFragments[0]} AND value in (${(operands[1] as any).map((el: any) => `'${el}'`).join(', ')})`; // handle all cases
 
     default: throw new Error(`Unexpected operator: ${operator}`)
   }
