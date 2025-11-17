@@ -96,7 +96,7 @@ function parseFilter(
       topLevelOperands.push(node);
     }
 
-    if (topLevelOperands.length === 1 && !context.isTopLevel) {
+    if (topLevelOperands.length === 1 && (!context.isTopLevel || topLevelOperands[0]?.operator === '$and')) {
       return {
         error: null,
         filterParseTree: topLevelOperands[0]!
