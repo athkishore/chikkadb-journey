@@ -46,11 +46,15 @@ const { error, filterParseTree } = parseFilter(filter, { parentKey: '$and', isTo
 if (error) console.error(error);
 if (filterParseTree) console.dir(filterParseTree, { depth: null });
 
-const sql = filterParseTree ? convertFilterTreeToSQL(collection, filterParseTree) : null;
+const sql = filterParseTree ? convertFilterTreeToSQLNew(collection, filterParseTree) : null;
+
 console.log(sql);
 
+const start = Date.now();
 const result = sql ? db.prepare(sql).all() : null;
+const end = Date.now();
 console.log(result);
+console.log('Completed in ', end - start, 'ms');
 
 type FilterOperator = typeof FILTER_OPERATORS[number];
 type LeafOperator = typeof LEAF_OPERATORS[number];
@@ -182,88 +186,81 @@ function parseElement(
   throw new Error(`Unexpected key-value pair: ${key} ${value}`);
 }
 
-// This is a specific backend implementation and can change
-function convertFilterTreeToSQLWhere(filter: FilterParseNode, level = 0): string {
-  const { operator, operands } = filter;
+// This is a specific implementation and can change
+function convertFilterTreeToSQLNew(collection: string, filter: FilterParseNode): string {
+  const context: {
+    condition_ctes: string[];
+    condition_values_select: string[];
+    condition_where_expression: string;
+  } = {
+    condition_ctes: [],
+    condition_values_select: [],
+    condition_where_expression: '',
+  };
+  
+  // parse
+  function traverseFilterAndTranslateCTE(filterNode: FilterParseNode, ctx: typeof context) {
+    const { operator, operands } = filterNode;
 
-  const sqlFragments: string [] = [];
+    for (const operand of operands) {
+      const operator = (operand as FilterParseNode).operator;
 
-  for (const operand of operands) {
-    if ((operand as FilterParseNode).operator) {
-      const sqlFragment = convertFilterTreeToSQLWhere(operand as FilterParseNode, 1);
-      sqlFragments.push(sqlFragment);
-    } else if ((operand as FieldReference).$ref) {
-      const fieldPathSegments = (operand as FieldReference).$ref.split('.');
-      const sqlFragment = `'$.${fieldPathSegments.map((el, index) => {
-        if (/\d+$/.test(el)) {
-          return '';
-        } else if (/^[A-Za-z][A-Za-z0-9]*$/.test(el)) {
-          return /\d+$/.test(fieldPathSegments[index + 1] ?? '') ? `${el}[${fieldPathSegments[index + 1]}]` : `${el}%`;
-        } else {
-          const escaped = el.replace(/"/g, '\\"');
-          return /\d+$/.test(fieldPathSegments[index + 1] ?? '') ? `${escaped}[${fieldPathSegments[index + 1]}]` : `"${escaped}"%`;
+      if (operator && INTERIOR_OPERATORS.includes(operator)) {
+        traverseFilterAndTranslateCTE(operand as FilterParseNode, ctx);
+      } else if (operator && LEAF_OPERATORS.includes(operator as LeafOperator)) {
+        switch(operator) {
+          case '$eq':
+            ctx.condition_ctes.push(`fullkey LIKE ${getRefSqlFragment(((operand as FilterParseNode).operands[0] as FieldReference).$ref as string)} AND value = ${getValueSqlFragment((operand as FilterParseNode).operands[1] as any)}`);
+            break;
+          case '$gt':
+            ctx.condition_ctes.push(`fullkey LIKE ${getRefSqlFragment(((operand as FilterParseNode).operands[0] as FieldReference).$ref as string)} AND value > ${getValueSqlFragment((operand as FilterParseNode).operands[1] as any)} AND type <> 'array'`);
+            break;
+          case '$gte':
+            ctx.condition_ctes.push(`fullkey LIKE ${getRefSqlFragment(((operand as FilterParseNode).operands[0] as FieldReference).$ref as string)} AND value >= ${getValueSqlFragment((operand as FilterParseNode).operands[1] as any)} AND type <> 'array'`);
+            break;
+          case '$lt':
+            ctx.condition_ctes.push(`fullkey LIKE ${getRefSqlFragment(((operand as FilterParseNode).operands[0] as FieldReference).$ref as string)} AND value < ${getValueSqlFragment((operand as FilterParseNode).operands[1] as any)} AND type <> 'array'`);
+            break;
+          case '$lte':
+            ctx.condition_ctes.push(`fullkey LIKE ${getRefSqlFragment(((operand as FilterParseNode).operands[0] as FieldReference).$ref as string)} AND value <= ${getValueSqlFragment((operand as FilterParseNode).operands[1] as any)} AND type <> 'array'`);
+            break;
+          
         }
-      }).filter(Boolean).join('.')}'`;
-      sqlFragments.push(sqlFragment);
-    } else if (typeof operand === 'string') {
-      sqlFragments.push(`'${operand}'`);
-    } else if (typeof operand === 'number') {
-      sqlFragments.push(`${operand}`);
-    } else if (typeof operand === 'boolean') {
-      sqlFragments.push(operand ? 'TRUE' : 'FALSE');
-    } else if (operand === null) {
-      sqlFragments.push('NULL');
-    } else if (Array.isArray(operand)) {
-      sqlFragments.push(`'${JSON.stringify(operand)}'`);
+
+        (operand as any).condition = ctx.condition_ctes.length - 1;
+        (operand as any).whereFragment = `(c${ctx.condition_ctes.length - 1} IS NOT NULL)`;
+      }
+    }
+  }
+
+  traverseFilterAndTranslateCTE(filter, context);
+
+  console.dir(filter, { depth: null });
+
+  function traverseFilterAndTranslateWhere(filterNode: any, ctx: typeof context): string {
+    if (filterNode.whereFragment) {
+      return filterNode.whereFragment;
+    } else if (filterNode.operator === '$and') {
+      const fragments = filterNode.operands.map((op: any) => traverseFilterAndTranslateWhere(op, ctx));
+      return `(${fragments.join(' AND ')})`;
+    } else if (filterNode.operator === '$or') {
+      const fragments = filterNode.operands.map((op: any) => traverseFilterAndTranslateWhere(op, ctx));
+      return `(${fragments.join(' OR ')})`;
     }
 
+    return '';
+  } 
 
-  }
-  switch (operator) {
-    case '$and': 
-      return level === 1 
-        ? sqlFragments.map(o => `(${o})`).join(' AND ')
-        : sqlFragments.map((o, i) => `
-            condition_${i} AS (
-              SELECT 1
-              FROM subtree
-              WHERE ${o}
-              LIMIT 1
-            )
-          `).join(',') + `
-            SELECT 1 FROM ${sqlFragments.map((_, i) => `condition_${i}`).join(', ')}
-          `;
+  const whereFragment = traverseFilterAndTranslateWhere(filter, context);
 
-    case '$or':
-      return sqlFragments.map(o => `(${o})`).join(' OR ');
-
-    case '$eq':
-      return `fullkey LIKE ${sqlFragments[0]} AND value = ${sqlFragments[1]}`; // highly specific to this implementation
-
-    case '$gt':
-      return `fullkey LIKE ${sqlFragments[0]} AND value > ${sqlFragments[1]}`;
-
-    case '$gte':
-      return `fullkey LIKE ${sqlFragments[0]} AND value >= ${sqlFragments[1]} AND type <> 'array'`;
-
-    case '$lt':
-      return `fullkey LIKE ${sqlFragments[0]} AND value < ${sqlFragments[1]}`;
-
-    case '$lte':
-      return `fullkey LIKE ${sqlFragments[0]} AND value <= ${sqlFragments[1]}`;
-
-    case '$in':
-      return `fullkey LIKE ${sqlFragments[0]} AND value in (${(operands[1] as any).map((el: any) => `'${el}'`).join(', ')})`; // handle all cases
-
-    default: throw new Error(`Unexpected operator: ${operator}`)
-  }
-
-}
-
-function convertFilterTreeToSQL(collection: string, filter: FilterParseNode): string {
-  const where = convertFilterTreeToSQLWhere(filter);
-
-  const sql = `
+  const {
+    condition_ctes,
+    condition_values_select,
+    condition_where_expression,
+  } = context;
+  
+  
+  let sql = `
     SELECT COUNT(DISTINCT(c.id))
     FROM ${collection} as c
     WHERE EXISTS (
@@ -271,10 +268,59 @@ function convertFilterTreeToSQL(collection: string, filter: FilterParseNode): st
         SELECT jt.key, jt.fullkey, jt.type, jt.value
         FROM json_tree(c.doc) AS jt
       ),
-      ${where}
+      ${condition_ctes.map((cte, index) => `
+        condition_${index} AS (
+          SELECT 1 AS c${index}
+          FROM subtree
+          WHERE ${cte}
+          LIMIT 1
+        )\
+      `).join(',')}
+      SELECT 1
+      ${condition_ctes.map((_, index) => {
+        return index === 0
+          ? `FROM condition_${index} c${index}`
+          : `LEFT JOIN condition_${index} c${index} ON 1=1`;
+      }).join('\n')}
+      WHERE
+        ${whereFragment}
     );
   `;
 
-  return sql;
+;  return sql;
+
+  
 }
 
+function getRefSqlFragment(ref: string): string {
+  console.log(ref);
+  const fieldPathSegments = ref.split('.');
+  const sqlFragment = `'$.${fieldPathSegments.map((el, index) => {
+    if (/\d+$/.test(el)) {
+      return '';
+    } else if (/^[A-Za-z][A-Za-z0-9]*$/.test(el)) {
+      return /\d+$/.test(fieldPathSegments[index + 1] ?? '') ? `${el}[${fieldPathSegments[index + 1]}]` : `${el}%`;
+    } else {
+      const escaped = el.replace(/"/g, '\\"');
+      return /\d+$/.test(fieldPathSegments[index + 1] ?? '') ? `${escaped}[${fieldPathSegments[index + 1]}]` : `"${escaped}"%`;
+    }
+  }).filter(Boolean).join('.')}'`;
+  return sqlFragment;
+}
+
+function getValueSqlFragment(value: string | number | boolean | null | any[] | Object): string {
+  if (typeof value === 'string') {
+    return `'${value}'`;
+  } else if (typeof value === 'number') {
+    return `${value}`;
+  } else if (typeof value === 'boolean') {
+    return value ? 'TRUE' : 'FALSE';
+  } else if (value === null) {
+    return 'NULL';
+  } else if (Array.isArray(value)) {
+    return `'${JSON.stringify(value)}'`;
+  } else if (typeof value === 'object') {
+    return `${JSON.stringify(value)}`;
+  }
+  return ''
+}
