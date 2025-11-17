@@ -280,7 +280,7 @@ function convertFilterTreeToSQLNew(collection: string, filter: FilterParseNode):
       ${condition_ctes.map((_, index) => {
         return index === 0
           ? `FROM condition_${index} c${index}`
-          : `LEFT JOIN condition_${index} c${index} ON 1=1`;
+          : `FULL OUTER JOIN condition_${index} c${index} ON 1=1`;
       }).join('\n')}
       WHERE
         ${whereFragment}
