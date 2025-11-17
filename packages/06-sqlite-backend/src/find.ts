@@ -76,7 +76,8 @@ function parseFilter(
     parentKey: string;
     isTopLevel?: boolean;
   } = {
-    parentKey: '$and',
+    parentKey: '',
+    isTopLevel: false,
   }
 ): { 
   error: null, 
@@ -151,7 +152,7 @@ function parseElement(
       operands.push(filterParseTree);
     }
 
-    return {
+    return operands.length === 1 ? operands[0] as FilterParseNode : {
       operator: key as FilterOperator,
       operands,
     }
@@ -193,14 +194,16 @@ function convertFilterTreeToSQLWhere(filter: FilterParseNode, level = 0): string
       sqlFragments.push(sqlFragment);
     } else if ((operand as FieldReference).$ref) {
       const fieldPathSegments = (operand as FieldReference).$ref.split('.');
-      const sqlFragment = `'$.${fieldPathSegments.map(el => {
-        if (/^[A-Za-z][A-Za-z0-9]*$/.test(el)) {
-          return `${el}%`;
+      const sqlFragment = `'$.${fieldPathSegments.map((el, index) => {
+        if (/\d+$/.test(el)) {
+          return '';
+        } else if (/^[A-Za-z][A-Za-z0-9]*$/.test(el)) {
+          return /\d+$/.test(fieldPathSegments[index + 1] ?? '') ? `${el}[${fieldPathSegments[index + 1]}]` : `${el}%`;
         } else {
           const escaped = el.replace(/"/g, '\\"');
-          return `"${escaped}"%`;
+          return /\d+$/.test(fieldPathSegments[index + 1] ?? '') ? `${escaped}[${fieldPathSegments[index + 1]}]` : `"${escaped}"%`;
         }
-      }).join('.')}'`;
+      }).filter(Boolean).join('.')}'`;
       sqlFragments.push(sqlFragment);
     } else if (typeof operand === 'string') {
       sqlFragments.push(`'${operand}'`);
@@ -210,6 +213,8 @@ function convertFilterTreeToSQLWhere(filter: FilterParseNode, level = 0): string
       sqlFragments.push(operand ? 'TRUE' : 'FALSE');
     } else if (operand === null) {
       sqlFragments.push('NULL');
+    } else if (Array.isArray(operand)) {
+      sqlFragments.push(`'${JSON.stringify(operand)}'`);
     }
 
 
