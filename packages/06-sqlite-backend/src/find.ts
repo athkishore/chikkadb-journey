@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-const DB_PATH = 'data/sqlite/cricket.db';
+const DB_PATH = 'data/sqlite/cricket_jsonb.db';
 
 const FILTER_OPERATORS = [
   '$and',
@@ -28,6 +28,9 @@ const INTERIOR_OPERATORS = [
 
 
 const db = new Database(DB_PATH);
+
+const v = db.prepare('select sqlite_version()').pluck().get();
+console.log(v);
 
 const collection = process.argv[2];
 if (!collection) {
@@ -266,7 +269,7 @@ function convertFilterTreeToSQLNew(collection: string, filter: FilterParseNode):
     WHERE EXISTS (
       WITH subtree(key, fullkey, type, value) AS (
         SELECT jt.key, jt.fullkey, jt.type, jt.value
-        FROM json_tree(c.doc) AS jt
+        FROM jsonb_tree(c.doc) AS jt
       ),
       ${condition_ctes.map((cte, index) => `
         condition_${index} AS (

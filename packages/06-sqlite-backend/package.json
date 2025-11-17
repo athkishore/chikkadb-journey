@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "preinstall": "npm install better-sqlite3@latest --no-save --build-from-source --sqlite3=\"/home/kishore/Projects/sqlite-mongo/sqlite-src-3510000\""
   },
   "keywords": [],
   "author": "",
@@ -16,7 +17,6 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "better-sqlite3": "^12.4.1",
     "bson": "^6.10.4",
     "mongodb": "^6.20.0"
   }
