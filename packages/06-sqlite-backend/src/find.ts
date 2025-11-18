@@ -10,6 +10,7 @@ const FILTER_OPERATORS = [
   '$gt',
   '$gte',
   '$in',
+  '$nin',
 ] as const;
 
 const LEAF_OPERATORS = [
@@ -19,6 +20,7 @@ const LEAF_OPERATORS = [
   '$gt',
   '$gte',
   '$in',
+  '$nin',
 ] as const;
 
 const INTERIOR_OPERATORS = [
@@ -228,8 +230,14 @@ function convertFilterTreeToSQLNew(collection: string, filter: FilterParseNode):
             ctx.condition_ctes.push(`fullkey LIKE ${getRefSqlFragment(((operand as FilterParseNode).operands[0] as FieldReference).$ref as string)} AND value <= ${getValueSqlFragment((operand as FilterParseNode).operands[1] as any)} AND type <> 'array'`);
             break;
           case '$in':
-            ctx.condition_ctes.push(`fullkey LIKE ${getRefSqlFragment(((operand as FilterParseNode).operands[0] as FieldReference).$ref as string)} AND value IN (${((operand as FilterParseNode).operands[1] as unknown as any[]).map(el => getValueSqlFragment(el)).join(', ')})`)
-          
+            ctx.condition_ctes.push(`fullkey LIKE ${getRefSqlFragment(((operand as FilterParseNode).operands[0] as FieldReference).$ref as string)} AND value IN (${((operand as FilterParseNode).operands[1] as unknown as any[]).map(el => getValueSqlFragment(el)).join(', ')}) AND type <> 'array'`)
+            break;
+          case '$nin':
+            ctx.condition_ctes.push(`fullkey LIKE ${getRefSqlFragment(((operand as FilterParseNode).operands[0] as FieldReference).$ref)} AND ${((operand as FilterParseNode).operands[1] as unknown as any[]).map(el => `value <> ${getValueSqlFragment(el)}`).join(' AND ')} AND type <> 'array'`);
+            break;
+
+          default:
+            throw new Error(`Unknown operator: ${operator}`);
           
         }
 
