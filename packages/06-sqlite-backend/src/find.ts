@@ -227,6 +227,9 @@ function convertFilterTreeToSQLNew(collection: string, filter: FilterParseNode):
           case '$lte':
             ctx.condition_ctes.push(`fullkey LIKE ${getRefSqlFragment(((operand as FilterParseNode).operands[0] as FieldReference).$ref as string)} AND value <= ${getValueSqlFragment((operand as FilterParseNode).operands[1] as any)} AND type <> 'array'`);
             break;
+          case '$in':
+            ctx.condition_ctes.push(`fullkey LIKE ${getRefSqlFragment(((operand as FilterParseNode).operands[0] as FieldReference).$ref as string)} AND value IN (${((operand as FilterParseNode).operands[1] as unknown as any[]).map(el => getValueSqlFragment(el)).join(', ')})`)
+          
           
         }
 
@@ -321,9 +324,9 @@ function getValueSqlFragment(value: string | number | boolean | null | any[] | O
   } else if (value === null) {
     return 'NULL';
   } else if (Array.isArray(value)) {
-    return `'${JSON.stringify(value)}'`;
+    return `jsonb('${JSON.stringify(value)}')`;
   } else if (typeof value === 'object') {
-    return `${JSON.stringify(value)}`;
+    return `jsonb('${JSON.stringify(value)}')`;
   }
   return ''
 }
