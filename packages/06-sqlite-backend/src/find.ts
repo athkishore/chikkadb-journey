@@ -213,33 +213,39 @@ function convertFilterTreeToSQLNew(collection: string, filter: FilterParseNode):
       if (operator && INTERIOR_OPERATORS.includes(operator)) {
         traverseFilterAndTranslateCTE(operand as FilterParseNode, ctx);
       } else if (operator && LEAF_OPERATORS.includes(operator as LeafOperator)) {
-        switch(operator) {
-          case '$eq':
-            ctx.condition_ctes.push(`fullkey LIKE ${getRefSqlFragment(((operand as FilterParseNode).operands[0] as FieldReference).$ref as string)} AND value = ${getValueSqlFragment((operand as FilterParseNode).operands[1] as any)}`);
-            break;
-          case '$gt':
-            ctx.condition_ctes.push(`fullkey LIKE ${getRefSqlFragment(((operand as FilterParseNode).operands[0] as FieldReference).$ref as string)} AND value > ${getValueSqlFragment((operand as FilterParseNode).operands[1] as any)} AND type <> 'array'`);
-            break;
-          case '$gte':
-            ctx.condition_ctes.push(`fullkey LIKE ${getRefSqlFragment(((operand as FilterParseNode).operands[0] as FieldReference).$ref as string)} AND value >= ${getValueSqlFragment((operand as FilterParseNode).operands[1] as any)} AND type <> 'array'`);
-            break;
-          case '$lt':
-            ctx.condition_ctes.push(`fullkey LIKE ${getRefSqlFragment(((operand as FilterParseNode).operands[0] as FieldReference).$ref as string)} AND value < ${getValueSqlFragment((operand as FilterParseNode).operands[1] as any)} AND type <> 'array'`);
-            break;
-          case '$lte':
-            ctx.condition_ctes.push(`fullkey LIKE ${getRefSqlFragment(((operand as FilterParseNode).operands[0] as FieldReference).$ref as string)} AND value <= ${getValueSqlFragment((operand as FilterParseNode).operands[1] as any)} AND type <> 'array'`);
-            break;
-          case '$in':
-            ctx.condition_ctes.push(`fullkey LIKE ${getRefSqlFragment(((operand as FilterParseNode).operands[0] as FieldReference).$ref as string)} AND value IN (${((operand as FilterParseNode).operands[1] as unknown as any[]).map(el => getValueSqlFragment(el)).join(', ')}) AND type <> 'array'`)
-            break;
-          case '$nin':
-            ctx.condition_ctes.push(`fullkey LIKE ${getRefSqlFragment(((operand as FilterParseNode).operands[0] as FieldReference).$ref)} AND ${((operand as FilterParseNode).operands[1] as unknown as any[]).map(el => `value <> ${getValueSqlFragment(el)}`).join(' AND ')} AND type <> 'array'`);
-            break;
+        // switch(operator) {
+        //   case '$eq':
+        //     ctx.condition_ctes.push(`fullkey LIKE ${getRefSqlFragment(((operand as FilterParseNode).operands[0] as FieldReference).$ref as string)} AND value = ${getValueSqlFragment((operand as FilterParseNode).operands[1] as any)}`);
+        //     break;
+        //   case '$gt':
+        //     ctx.condition_ctes.push(`fullkey LIKE ${getRefSqlFragment(((operand as FilterParseNode).operands[0] as FieldReference).$ref as string)} AND value > ${getValueSqlFragment((operand as FilterParseNode).operands[1] as any)} AND type <> 'array'`);
+        //     break;
+        //   case '$gte':
+        //     ctx.condition_ctes.push(`fullkey LIKE ${getRefSqlFragment(((operand as FilterParseNode).operands[0] as FieldReference).$ref as string)} AND value >= ${getValueSqlFragment((operand as FilterParseNode).operands[1] as any)} AND type <> 'array'`);
+        //     break;
+        //   case '$lt':
+        //     ctx.condition_ctes.push(`fullkey LIKE ${getRefSqlFragment(((operand as FilterParseNode).operands[0] as FieldReference).$ref as string)} AND value < ${getValueSqlFragment((operand as FilterParseNode).operands[1] as any)} AND type <> 'array'`);
+        //     break;
+        //   case '$lte':
+        //     ctx.condition_ctes.push(`fullkey LIKE ${getRefSqlFragment(((operand as FilterParseNode).operands[0] as FieldReference).$ref as string)} AND value <= ${getValueSqlFragment((operand as FilterParseNode).operands[1] as any)} AND type <> 'array'`);
+        //     break;
+        //   case '$in':
+        //     ctx.condition_ctes.push(`fullkey LIKE ${getRefSqlFragment(((operand as FilterParseNode).operands[0] as FieldReference).$ref as string)} AND value IN (${((operand as FilterParseNode).operands[1] as unknown as any[]).map(el => getValueSqlFragment(el)).join(', ')}) AND type <> 'array'`)
+        //     break;
+        //   case '$nin':
+        //     ctx.condition_ctes.push(`fullkey LIKE ${getRefSqlFragment(((operand as FilterParseNode).operands[0] as FieldReference).$ref)} AND ${((operand as FilterParseNode).operands[1] as unknown as any[]).map(el => `value <> ${getValueSqlFragment(el)}`).join(' AND ')} AND type <> 'array'`);
+        //     break;
 
-          default:
-            throw new Error(`Unknown operator: ${operator}`);
+        //   default:
+        //     throw new Error(`Unknown operator: ${operator}`);
           
-        }
+        // }
+
+        const ref = ((operand as FilterParseNode).operands[0] as FieldReference).$ref;
+        const value = (operand as FilterParseNode).operands[1] as any;
+        const sqlFragment = getLeafSqlFragment(ctx.condition_ctes.length, operator as LeafOperator, ref, value);
+
+        ctx.condition_ctes.push(sqlFragment);
 
         (operand as any).condition = ctx.condition_ctes.length - 1;
         (operand as any).whereFragment = `(c${ctx.condition_ctes.length - 1} IS NOT NULL)`;
@@ -282,14 +288,18 @@ function convertFilterTreeToSQLNew(collection: string, filter: FilterParseNode):
         SELECT jt.key, jt.fullkey, jt.type, jt.value
         FROM jsonb_tree(c.doc) AS jt
       ),
-      ${condition_ctes.map((cte, index) => `
-        condition_${index} AS (
-          SELECT 1 AS c${index}
-          FROM subtree
-          WHERE ${cte}
-          LIMIT 1
-        )\
-      `).join(',')}
+      ${
+      //   condition_ctes.map((cte, index) => `
+      //   condition_${index} AS (
+      //     SELECT 1 AS c${index}
+      //     FROM subtree
+      //     WHERE ${cte}
+      //     LIMIT 1
+      //   )\
+      // `).join(',')
+        condition_ctes.join(',')
+    
+      }
       SELECT 1
       ${condition_ctes.map((_, index) => {
         return index === 0
@@ -304,6 +314,101 @@ function convertFilterTreeToSQLNew(collection: string, filter: FilterParseNode):
 ;  return sql;
 
   
+}
+
+function getLeafSqlFragment(n: number, op: LeafOperator, ref: string, value: string | number | boolean | null | any[] | Object): string {
+  let fieldPathSegments = ref.split('.');
+  
+  fieldPathSegments = fieldPathSegments.reduce((acc, el, index, arr) => {
+    if (!isNaN(Number(el))) {
+      return [
+        ...acc.slice(0, acc.length - 1),
+        `${acc[acc.length - 1]}[${el}]`,
+      ];
+    } else if (!isNaN(Number(arr[index - 1]))) {
+      return [
+        ...acc.slice(0, acc.length - 1),
+        `${acc[acc.length - 1]}.${el}`,
+      ];
+    } else {
+      return [...acc, el];
+    }
+  },[] as string[]);
+
+  console.log(fieldPathSegments);
+
+  const segmentCount = fieldPathSegments.length;
+  let sqlFragment = '';
+  let segment = fieldPathSegments.pop();
+  let segmentIdx = fieldPathSegments.length;
+
+  if (segment && segmentCount === 1) {
+    sqlFragment = `
+      condition_${n} AS (
+        SELECT 1 AS c${n}
+        FROM (
+          SELECT json_type(c.doc, '$.${segment}') AS type,
+            jsonb_extract(c.doc, '$.${segment}') AS value
+        ) AS node
+        WHERE CASE node.type
+          WHEN 'array' THEN EXISTS (
+            SELECT 1 FROM jsonb_each(node.value) AS c${n}_p${segmentIdx}
+            WHERE c${n}_p${segmentIdx} ${getOpSqlFragment(op)} ${getValueSqlFragment(value)}
+          )
+          ELSE node.value ${getOpSqlFragment(op)} ${getValueSqlFragment(value)}
+        END
+      )
+    `;
+
+    return sqlFragment;
+  }
+
+  while(segment) {
+    if (segmentIdx === segmentCount - 1) {
+      sqlFragment = `
+        WHERE CASE c${n}_p${segmentIdx - 1}.key
+          WHEN '${segment}' THEN
+            CASE c${n}_p${segmentIdx - 1}.type
+              WHEN 'array' THEN EXISTS (
+                SELECT 1 
+                FROM jsonb_each(c${n}_p${segmentIdx - 1}.value) AS c${n}_p${segmentIdx}
+                WHERE c${n}_p${segmentIdx}.value ${getOpSqlFragment(op)} ${getValueSqlFragment(value)}
+              )
+              ELSE c${n}_p${segmentIdx - 1}.value ${getOpSqlFragment(op)} ${getValueSqlFragment(value)}
+            END
+          ELSE 0
+        END
+      `;
+    } else if (segmentIdx > 0) {
+      sqlFragment = `
+        WHERE EXISTS (
+          SELECT 1 FROM jsonb_each(c${n}_p${segmentIdx - 1}.value, '$.${segment}') AS c${n}_p${segmentIdx}${sqlFragment}
+        )
+      `;
+    } else {
+      sqlFragment = `
+        condition_${n} AS (
+          SELECT 1 AS c${n} FROM jsonb_each(c.doc, '$.${segment}') AS c${n}_p${segmentIdx}${sqlFragment}
+        )
+      `;
+    }
+    segment = fieldPathSegments.pop();
+    segmentIdx--;
+  }
+
+  return sqlFragment;
+}
+
+function getOpSqlFragment(op: LeafOperator): string {
+  switch(op) {
+    case '$eq': return '=';
+    case '$gt': return '>';
+    case '$gte': return '>=';
+    case '$lt': return '<';
+    case '$lte': return '<=';
+    case '$in': return 'IN';
+    case '$nin': return 'NOT IN';
+  }
 }
 
 function getRefSqlFragment(ref: string): string {
