@@ -274,3 +274,85 @@ function encodeOpReplyPayload(payload: OpReplyPayload): Buffer {
   ]);  
 }
 
+function encodeOpMsgPayload(payload: OpMsgPayload): Buffer {
+  const {
+    flagBits,
+    sections,
+    checksum,
+  } = payload;
+
+  const flagBitsBytes = Buffer.alloc(4);
+  flagBitsBytes.writeInt32LE(flagBits);
+
+  const sectionsBytes = encodeOpMsgPayloadSections(sections);
+  
+  const checksumBytes = checksum !== undefined ? Buffer.alloc(4) : undefined;
+  checksumBytes && checksum !== undefined && checksumBytes.writeInt32LE(checksum);
+
+  return Buffer.concat([
+    flagBitsBytes,
+    sectionsBytes,
+    checksumBytes,
+  ].filter(Boolean as unknown as <T>(x: T | false | null | undefined) => x is T));
+}
+
+function encodeOpMsgPayloadSections(sections: OpMsgPayloadSection[]): Buffer {
+  let sectionsBytes = Buffer.alloc(0);
+
+  for (const section of sections) {
+    switch (section.sectionKind) {
+      case 0: {
+        const {
+          sectionKind,
+          document,
+        } = section;
+        const sectionKindBytes = Buffer.alloc(1);
+        sectionKindBytes.writeUint8(sectionKind);
+        
+        const documentBytes = BSON.serialize(document);
+
+        sectionsBytes = Buffer.concat([
+          sectionsBytes,
+          sectionKindBytes,
+          documentBytes,
+        ]);
+
+        break;
+      }
+
+      case 1: {
+        const {
+          sectionKind,
+          // size: will be calculated after encoding
+          documentSequenceIdentifier,
+          documents,
+        } = section;
+
+        const sectionKindBytes = Buffer.alloc(1);
+        sectionKindBytes.writeUint8(sectionKind);
+
+        const documentSequenceIdentifierBytes = Buffer.from(
+          documentSequenceIdentifier,
+          'utf-8'
+        );
+
+        const documentsBytes = documents.reduce((buf: Buffer, doc) =>
+          Buffer.concat([buf, BSON.serialize(doc)])
+        , Buffer.alloc(0));
+
+        const size = 4 + documentSequenceIdentifierBytes.length + documentsBytes.length;
+        const sizeBytes = Buffer.alloc(4);
+        sizeBytes.writeInt32LE(size);
+
+        sectionsBytes = Buffer.concat([
+          sectionsBytes,
+          sizeBytes,
+          documentSequenceIdentifierBytes,
+          documentsBytes
+        ]);
+      }
+    }
+  }
+
+  return sectionsBytes;
+}
