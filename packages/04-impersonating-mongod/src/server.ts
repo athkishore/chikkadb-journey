@@ -40,14 +40,16 @@ async function getResponse(message: WireMessage): Promise<WireMessage> {
   const { header, payload } = message;
   const { opCode, requestID, responseTo } = header;
 
+  const responseHeader = {
+    messageLength: 0, // will be set by encoder
+    requestID: 1, // TODO: Unhardcode
+    responseTo: requestID,
+    opCode: opCode === 2004 ? 1 : 2013,
+  }
+
   if (opCode === 2004) {
     return {
-      header: {
-        messageLength: 0, // will be calculated by encoder
-        requestID: 1, // TODO: Unhardcode
-        responseTo: requestID,
-        opCode: 1, // OP_REPLY
-      },
+      header: responseHeader,
       payload: {
         _type: 'OP_REPLY',
         responseFlags: 8,
@@ -90,12 +92,7 @@ async function getResponse(message: WireMessage): Promise<WireMessage> {
 
     if (document.buildInfo) {
       return {
-        header: {
-          messageLength: 0,
-          requestID: 1,
-          responseTo: requestID,
-          opCode,
-        },
+        header: responseHeader,
         payload: {
           _type: 'OP_MSG',
           flagBits: 0,
@@ -120,14 +117,102 @@ async function getResponse(message: WireMessage): Promise<WireMessage> {
           }]
         },
       }
+    } else if (document.getParameter) {
+      return {
+        header: responseHeader,
+        payload: {
+          _type: 'OP_MSG',
+          flagBits: 0,
+          sections: [{
+            sectionKind: 0,
+            document: {
+              featureCompatibilityVersion: {
+                version: '7.0',
+              },
+              ok: 1,
+            },
+          }],
+        }
+      }
+    } else if (document.aggregate) {
+      return {
+        header: responseHeader,
+        payload: {
+          _type: 'OP_MSG',
+          flagBits: 0,
+          sections: [{
+            sectionKind: 0,
+            document: {
+              cursor: {
+                firstBatch: [],
+                id: 0,
+                ns: `${document.$db}.${document.aggregate}`,
+              },
+              ok: 1,
+            }
+          }]
+        }
+      };
+    } else if (document.ping) {
+      return {
+        header: responseHeader,
+        payload: {
+          _type: 'OP_MSG',
+          flagBits: 0,
+          sections: [{
+            sectionKind: 0,
+            document: {
+              ok: 1,
+            }
+          }]
+        }
+      };
+    } else if (document.getLog) {
+      return {
+        header: responseHeader,
+        payload: {
+          _type: 'OP_MSG',
+          flagBits: 0,
+          sections: [{
+            sectionKind: 0,
+            document: {
+              totalLinesWritten: 1,
+              log: [
+                `{"t":{"$date":"${new Date().toISOString()}"},"s":"I",  "c":"CONTROL",  "id":22297,   "ctx":"initandlisten","msg":"You have connected to a custom mongod alternative; several commands may be unavailable","tags":["startupWarnings"]}\n`
+              ]
+            }
+          }]
+        }
+      }
+    } else if (document.hello) {
+      return {
+        header: responseHeader,
+        payload: {
+          _type: 'OP_MSG',
+          flagBits: 0,
+          sections: [{
+            sectionKind: 0,
+            document: {
+              ok: 1,
+            }
+          }]
+        }
+      }
+    } else if (document.endSessions) {
+      return {
+        header: responseHeader,
+        payload: {
+          _type: 'OP_MSG',
+          flagBits: 0,
+          sections: [{
+            sectionKind: 0,
+            document: { ok: 1 },
+          }]
+        }
+      }
     } else {
       return {
-        header: {
-          messageLength: 0,
-          requestID: 1,
-          responseTo: requestID,
-          opCode: 2013,
-        },
+        header: responseHeader,
         payload: {
           _type: 'OP_MSG',
           flagBits: 0,
