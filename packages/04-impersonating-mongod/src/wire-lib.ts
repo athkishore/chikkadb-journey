@@ -242,6 +242,44 @@ function readBSONDocuments(buf: Buffer, offset: number): {
   }
 }
 
+function encodeMessage({
+  requestId,
+  responseTo,
+  opCode,
+  payload,
+}: {
+  requestId: number;
+  responseTo: number;
+  opCode: number;
+  payload: WireMessage['payload']
+}) {
+  let payloadBuf: Buffer;
+
+  switch(payload._type) {
+    case 'OP_REPLY':
+      payloadBuf = encodeOpReplyPayload(payload);
+      break;
+
+    case 'OP_MSG':
+      payloadBuf = encodeOpMsgPayload(payload);
+      break;
+
+    default:
+      throw new Error(`Uknown opcode: ${payload._type}`)
+  } 
+
+  const headerBuf = Buffer.alloc(16);
+
+  const messageLength = headerBuf.length + payloadBuf.length;
+  headerBuf.writeInt32LE(messageLength, 0);
+  headerBuf.writeInt32LE(requestId, 4);
+  headerBuf.writeInt32LE(responseTo, 8);
+  headerBuf.writeInt32LE(opCode, 12);
+
+  return Buffer.concat([headerBuf, payloadBuf]);
+
+}
+
 function encodeOpReplyPayload(payload: OpReplyPayload): Buffer {
   const {
     responseFlags,
