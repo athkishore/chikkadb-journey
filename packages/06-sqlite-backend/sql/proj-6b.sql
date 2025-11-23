@@ -23,9 +23,10 @@ SELECT m.id, (
 		LEFT JOIN jsonb_each(m.doc, '$.' || (SELECT p0 FROM vars)) AS je
 		ON json_type(m.doc, '$.' || (SELECT p0 FROM vars)) = 'array'
 	),
-	p1_each AS (
+	p1_each_mod AS (
 		SELECT
 			p0_each.key AS p0_key,
+			p0_each.value AS p0_value,
 			CASE json_type(p0_each.value, '$.' || (SELECT p1 FROM vars))
 				WHEN 'array' THEN je.key
 				ELSE null
@@ -42,18 +43,17 @@ SELECT m.id, (
 	),
 	p0_each_mod AS (
 		SELECT
-			p0_each.key as key,
+			p1_each_mod.p0_key as key,
 			jsonb_replace(
-				p0_each.value,
+				p1_each_mod.p0_value,
 				'$.' || (SELECT p1 FROM vars),
 				CASE
-					WHEN p1_each.key IS NULL THEN jsonb(p1_each.value)
-					ELSE jsonb_group_array(jsonb(p1_each.value))
+					WHEN p1_each_mod.key IS NULL THEN jsonb(p1_each_mod.value)
+					ELSE jsonb_group_array(jsonb(p1_each_mod.value))
 				END
 			) AS value
-		FROM p0_each
-		LEFT JOIN p1_each ON p0_each.key IS p1_each.p0_key
-		GROUP BY p1_each.p0_key
+		FROM p1_each_mod
+		GROUP BY p1_each_mod.p0_key
 	)
 	SELECT
 		CASE
