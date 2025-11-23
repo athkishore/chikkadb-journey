@@ -242,17 +242,14 @@ function readBSONDocuments(buf: Buffer, offset: number): {
   }
 }
 
-function encodeMessage({
-  requestId,
-  responseTo,
-  opCode,
+export function encodeMessage({
+  header: {
+    requestID,
+    responseTo,
+    opCode,
+  },
   payload,
-}: {
-  requestId: number;
-  responseTo: number;
-  opCode: number;
-  payload: WireMessage['payload']
-}) {
+}: WireMessage) {
   let payloadBuf: Buffer;
 
   switch(payload._type) {
@@ -272,7 +269,7 @@ function encodeMessage({
 
   const messageLength = headerBuf.length + payloadBuf.length;
   headerBuf.writeInt32LE(messageLength, 0);
-  headerBuf.writeInt32LE(requestId, 4);
+  headerBuf.writeInt32LE(requestID, 4);
   headerBuf.writeInt32LE(responseTo, 8);
   headerBuf.writeInt32LE(opCode, 12);
 
@@ -393,4 +390,31 @@ function encodeOpMsgPayloadSections(sections: OpMsgPayloadSection[]): Buffer {
   }
 
   return sectionsBytes;
+}
+
+export function processBuffer(bufHolder: { buf: Buffer }) {
+  const buf = bufHolder.buf;
+  let offset = 0;
+  let messages: WireMessage[] = [];
+
+  // If the buffer has less than 4 bytes to read, we
+  // haven't received the messageLength field yet
+  while(buf.length - offset >= 4) {
+    const messageLength = buf.readInt32LE(offset);
+
+    // If the buffer has less than messageLenth bytes to read,
+    // wait till more bytes arrive
+    if (buf.length - offset < messageLength) break;
+
+    const messageBuf = buf.subarray(offset, offset + messageLength);
+
+    const message = decodeMessage(messageBuf);
+    messages.push(message);
+
+    offset += messageLength;
+
+    // Remove the processed bytes from the buffer
+    bufHolder.buf = buf.subarray(offset);
+  }
+  return messages;
 }
