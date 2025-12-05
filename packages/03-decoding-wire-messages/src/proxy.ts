@@ -47,6 +47,18 @@ async function handleNewConnection(clientSock: Socket) {
       console.dir(message.payload, { depth: null });
     })
   });
+
+  clientSock.on('error', (error) => {
+    console.error(error);
+    clientSock.destroy();
+    serverSock.destroy();
+  });
+
+  serverSock.on('error', (error) => {
+    console.error(error);
+    clientSock.destroy();
+    serverSock.destroy();
+  });
 }
 
 const server = createServer(handleNewConnection);
